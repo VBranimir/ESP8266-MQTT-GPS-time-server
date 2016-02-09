@@ -1,0 +1,97 @@
+/* ESP8266 MQTT GPS time server 
+*/
+#include <PubSubClient.h>
+#include <ESP8266WiFi.h>
+#include <TimeLib.h>
+#include <TinyGPS.h>       //TinyGPS
+
+WiFiClient wifiClient;
+
+TinyGPS gps; 
+
+time_t prevDisplay = 0; // when the digital clock was displayed
+
+const char* ssid = "WIFI"; // Wifi name
+const char* password = "PASS";  //Wifi password
+char* server = "BROKER_IP"; //MQTT broker ip address
+
+char* topic = "/time";  //MQTT Topic
+char* message = "";
+char message_buff[20];
+
+// Offset hours from gps time (UTC)
+const int offset = 1;   // Central European Time
+//const int offset = -5;  // Eastern Standard Time (USA)
+//const int offset = -4;  // Eastern Daylight Time (USA)
+//const int offset = -8;  // Pacific Standard Time (USA)
+//const int offset = -7;  // Pacific Daylight Time (USA)
+
+void callback(char* topic, byte* message, unsigned int length){}
+PubSubClient client(server, 1883, callback, wifiClient);
+
+
+
+void setup() 
+{
+  String clientName;
+  clientName += "esp8266";
+  
+  Serial.begin(9600);
+  delay(10);  
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+  }
+   
+  if (client.connect((char*) clientName.c_str()))
+  {
+    Serial.println("Connected to broker");
+  }
+  else 
+  {
+    abort();
+  }
+  
+}
+
+
+
+void loop() 
+{
+  client.loop();
+    while (Serial.available())
+    {
+      if (gps.encode(Serial.read()))// process gps messages
+      { 
+        unsigned long age;
+        int Year;
+        byte Month, Day, Hour, Minute, Second;
+        gps.crack_datetime(&Year, &Month, &Day, &Hour, &Minute, &Second, NULL, &age);
+        if (age < 500) 
+        {
+          setTime(Hour, Minute, Second, Day, Month, Year);
+          adjustTime(offset * SECS_PER_HOUR);
+        }
+      }
+    }
+    if (timeStatus()!= timeNotSet)
+    {
+      if (now() != prevDisplay) //update the display only if the time has changed
+      { 
+        prevDisplay = now();
+        mqttTimePub();  
+      }
+  }
+ }
+ 
+ 
+ 
+ void mqttTimePub() //Publish timeDate to mqtt predefined topic
+ {
+  String timeDate = String(hour()) + ":" + String(minute()) + ":" + String(second()) + " " + String(day()) + "." + String(month()) + "." + String(year());  
+  Serial.println(timeDate);
+  timeDate.toCharArray(message_buff, timeDate.length()+1); //Save content to buffer
+  (client.publish(topic,message_buff)); // Publish buffer content to MQTT topic
+}
